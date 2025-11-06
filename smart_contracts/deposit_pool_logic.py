@@ -1,47 +1,140 @@
 # smart_contracts/deposit_pool_logic.py
 from pyteal import *
 
-# USDCa Asset ID (TestNet): 10458941
-# DLP TOKEN ID (Your newly created LP Token Asset ID)
+# ==============================================================
+# DeFa Deposit Pool Logic — Challenge 2 (Improved POC)
+# ==============================================================
 
-def deposit_approval_program():
-    """
-    Technical Blueprint for the DeFa Deposit Pool.
-    This contract is designed to execute as the second transaction (Txn 1) 
-    in a 2-transaction Atomic Transfer Group.
-    
-    It verifies that the first transaction (Txn 0) was the required deposit.
-    This demonstrates the core logic for the staking and protection mechanism.
-    
-    The contract will execute an Inner Transaction to send DLP Tokens back to the investor.
-    """
-    
-    # 1. Allow the Contract Account to opt-in to ASAs (Setup step)
-    is_opt_in = Txn.on_completion() == OnComplete.OptIn
+# TestNet ASA IDs
+USDC_ASSET_ID = Int(10458941)      # Stablecoin deposit asset
+DLP_ASSET_ID = Int(1001)  
 
-    # 2. Deposit Logic: Check the Atomic Transfer Group
-    deposit_check = And(
-        # A. Group Size Check: Must be exactly 2 transactions (Deposit + App Call)
+
+def approval_program():
+    """
+    This contract demonstrates an enhanced deposit + withdraw flow:
+    - Users deposit USDCa (Txn[0]) and receive DLP tokens proportionally.
+    - Withdrawals burn DLP and return equivalent USDCa.
+    """
+
+    # ------------------------------------------------------------------
+    # Global and local keys
+    # ------------------------------------------------------------------
+    global_total_deposits = Bytes("TOTAL_DEPOSITS")
+    local_balance = Bytes("USER_BALANCE")
+
+    # ------------------------------------------------------------------
+    # On creation — initialize state
+    # ------------------------------------------------------------------
+    on_create = Seq(
+        App.globalPut(global_total_deposits, Int(0)),
+        Approve()
+    )
+
+    # ------------------------------------------------------------------
+    # Opt-in — allows user to store local state
+    # ------------------------------------------------------------------
+    on_opt_in = Seq(
+        App.localPut(Txn.sender(), local_balance, Int(0)),
+        Approve()
+    )
+
+    # ------------------------------------------------------------------
+    # Deposit logic
+    # Grouped as: [0] Asset Transfer (USDCa) + [1] App Call
+    # ------------------------------------------------------------------
+    valid_deposit = And(
         Global.group_size() == Int(2),
-        
-        # B. Transaction 0 Check: Must be an Asset Transfer (the USDCa deposit)
         Gtxn[0].type_enum() == TxnType.AssetTransfer,
-        
-        # C. Safety Check: Ensure the sender of the Application Call is the sender of the deposit
-        Gtxn[0].sender() == Txn.sender(),
-        
-        # D. Amount Check: Ensure a non-zero amount was deposited
-        Gtxn[0].asset_amount() > Int(0)
+        Gtxn[0].xfer_asset() == USDC_ASSET_ID,
+        Gtxn[0].asset_amount() > Int(0),
+        Gtxn[0].sender() == Txn.sender()
     )
 
+    on_deposit = Seq(
+        Assert(valid_deposit),
+        # Update totals
+        App.globalPut(
+            global_total_deposits,
+            App.globalGet(global_total_deposits) + Gtxn[0].asset_amount()
+        ),
+        App.localPut(
+            Txn.sender(),
+            local_balance,
+            App.localGet(Txn.sender(), local_balance) + Gtxn[0].asset_amount()
+        ),
+        # Inner transaction: send DLP tokens back to depositor
+        InnerTxnBuilder.Begin(),
+        InnerTxnBuilder.SetFields({
+            TxnField.type_enum: TxnType.AssetTransfer,
+            TxnField.xfer_asset: DLP_ASSET_ID,
+            TxnField.asset_amount: Gtxn[0].asset_amount(),
+            TxnField.asset_receiver: Txn.sender(),
+        }),
+        InnerTxnBuilder.Submit(),
+        Approve()
+    )
+
+    # ------------------------------------------------------------------
+    # Withdraw logic
+    # User burns DLP tokens (Txn[0]) and gets back USDCa
+    # ------------------------------------------------------------------
+    valid_withdraw = And(
+        Global.group_size() == Int(2),
+        Gtxn[0].type_enum() == TxnType.AssetTransfer,
+        Gtxn[0].xfer_asset() == DLP_ASSET_ID,
+        Gtxn[0].asset_amount() > Int(0),
+        Gtxn[0].sender() == Txn.sender()
+    )
+
+    on_withdraw = Seq(
+        Assert(valid_withdraw),
+        Assert(
+            App.localGet(Txn.sender(), local_balance) >= Gtxn[0].asset_amount()
+        ),
+        # Update state
+        App.localPut(
+            Txn.sender(),
+            local_balance,
+            App.localGet(Txn.sender(), local_balance) - Gtxn[0].asset_amount()
+        ),
+        App.globalPut(
+            global_total_deposits,
+            App.globalGet(global_total_deposits) - Gtxn[0].asset_amount()
+        ),
+        # Send USDCa back to user
+        InnerTxnBuilder.Begin(),
+        InnerTxnBuilder.SetFields({
+            TxnField.type_enum: TxnType.AssetTransfer,
+            TxnField.xfer_asset: USDC_ASSET_ID,
+            TxnField.asset_amount: Gtxn[0].asset_amount(),
+            TxnField.asset_receiver: Txn.sender(),
+        }),
+        InnerTxnBuilder.Submit(),
+        Approve()
+    )
+
+    # ------------------------------------------------------------------
+    # Router
+    # ------------------------------------------------------------------
     program = Cond(
-        [is_opt_in, Int(1)],     # Success for the initial ASA Opt-in
-        [deposit_check, Int(1)], # Success for the deposit 
-        [Int(1), Int(0)]         # Reject all other calls (Default Fail)
+        [Txn.application_id() == Int(0), on_create],                   # Deploy
+        [Txn.on_completion() == OnComplete.OptIn, on_opt_in],          # Opt-in
+        [Txn.application_args[0] == Bytes("deposit"), on_deposit],     # Deposit call
+        [Txn.application_args[0] == Bytes("withdraw"), on_withdraw],   # Withdraw call
     )
 
-    # We commit the source code as a blueprint since local compilation is blocked.
     return program
 
+
+def clear_state_program():
+    """Allow users to clear their local state."""
+    return Approve()
+
+
+# ----------------------------------------------------------------------
+# Compile to TEAL
+# ----------------------------------------------------------------------
 if __name__ == "__main__":
-    print("This file serves as the smart contract blueprint for the DeFa deposit logic.")
+    print(compileTeal(approval_program(), mode=Mode.Application, version=6))
+

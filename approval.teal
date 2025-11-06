@@ -1,0 +1,131 @@
+#pragma version 6
+txn ApplicationID
+int 0
+==
+bnz main_l8
+txn OnCompletion
+int OptIn
+==
+bnz main_l7
+txna ApplicationArgs 0
+byte "deposit"
+==
+bnz main_l6
+txna ApplicationArgs 0
+byte "withdraw"
+==
+bnz main_l5
+err
+main_l5:
+global GroupSize
+int 2
+==
+gtxn 0 TypeEnum
+int axfer
+==
+&&
+gtxn 0 XferAsset
+int 1001
+==
+&&
+gtxn 0 AssetAmount
+int 0
+>
+&&
+gtxn 0 Sender
+txn Sender
+==
+&&
+assert
+txn Sender
+byte "USER_BALANCE"
+app_local_get
+gtxn 0 AssetAmount
+>=
+assert
+txn Sender
+byte "USER_BALANCE"
+txn Sender
+byte "USER_BALANCE"
+app_local_get
+gtxn 0 AssetAmount
+-
+app_local_put
+byte "TOTAL_DEPOSITS"
+byte "TOTAL_DEPOSITS"
+app_global_get
+gtxn 0 AssetAmount
+-
+app_global_put
+itxn_begin
+int axfer
+itxn_field TypeEnum
+int 10458941
+itxn_field XferAsset
+gtxn 0 AssetAmount
+itxn_field AssetAmount
+txn Sender
+itxn_field AssetReceiver
+itxn_submit
+int 1
+return
+main_l6:
+global GroupSize
+int 2
+==
+gtxn 0 TypeEnum
+int axfer
+==
+&&
+gtxn 0 XferAsset
+int 10458941
+==
+&&
+gtxn 0 AssetAmount
+int 0
+>
+&&
+gtxn 0 Sender
+txn Sender
+==
+&&
+assert
+byte "TOTAL_DEPOSITS"
+byte "TOTAL_DEPOSITS"
+app_global_get
+gtxn 0 AssetAmount
++
+app_global_put
+txn Sender
+byte "USER_BALANCE"
+txn Sender
+byte "USER_BALANCE"
+app_local_get
+gtxn 0 AssetAmount
++
+app_local_put
+itxn_begin
+int axfer
+itxn_field TypeEnum
+int 1001
+itxn_field XferAsset
+gtxn 0 AssetAmount
+itxn_field AssetAmount
+txn Sender
+itxn_field AssetReceiver
+itxn_submit
+int 1
+return
+main_l7:
+txn Sender
+byte "USER_BALANCE"
+int 0
+app_local_put
+int 1
+return
+main_l8:
+byte "TOTAL_DEPOSITS"
+int 0
+app_global_put
+int 1
+return
