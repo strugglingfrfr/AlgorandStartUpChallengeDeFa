@@ -136,5 +136,5 @@ def clear_state_program():
 # Compile to TEAL
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
-    print(compileTeal(approval_program(), mode=Mode.Application, version=6))
+    print(compileTeal(approval_program(), mode=Mode.Application, version=5))
 

@@ -12,3 +12,9 @@
 **Associated Assets:**
 * **Input Asset:** USDCa (TestNet ID: 10458941)
 * **Core Logic:** `smart_contracts/deposit_pool_logic.py` handles the exchange.
+
+## Challenge 2 – Deposit Pool Logic (Improved POC)
+Successfully compiled smart contract implementing deposit and withdrawal flow.
+- USDCa (ID: 10458941) deposits mint DLP tokens (ID: 1001)
+- Withdrawals burn DLP and return USDCa.
+- Verified compilation output in TEAL (Version 8)
